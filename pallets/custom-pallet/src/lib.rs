@@ -2,35 +2,36 @@
 
 pub use pallet::*;
 
-
-
 #[frame_support::pallet(dev_mode)]
 pub mod pallet {
     use super::*;
     use frame_support::pallet_prelude::*;
+    use frame_support::sp_runtime::traits::AccountIdConversion;
     use frame_support::sp_runtime::traits::CheckedDiv;
     use frame_support::sp_runtime::traits::Zero;
-    use frame_system::pallet_prelude::*;
-    use frame_support::transactional;    
+    use frame_support::sp_runtime::Saturating;
     use frame_support::traits::Currency;
     use frame_support::traits::ExistenceRequirement;
-    use frame_support::sp_runtime::Saturating;
-
+    use frame_support::transactional;
+    use frame_support::PalletId;
+    use frame_system::pallet_prelude::*;
 
     type BalanceOf<T> =
-    <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
+        <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
 
-    
     #[pallet::pallet]
     pub struct Pallet<T>(_);
 
     // Configuration trait for the pallet
     #[pallet::config]
-    pub trait Config:frame_system::Config {
+    pub trait Config: frame_system::Config + scale_info::TypeInfo {
         // Defines the event type for the pallet
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
         type Currency: Currency<Self::AccountId>;
+
+        #[pallet::constant]
+        type PalletId: Get<PalletId>;
 
         #[pallet::constant]
         type VoteCost: Get<BalanceOf<Self>>;
@@ -110,8 +111,8 @@ pub mod pallet {
             let creator = ensure_signed(origin)?;
 
             let market_id = MarketCount::<T>::get();
-            let end_block =
-                frame_system::Pallet::<T>::block_number().saturating_add(T::MarketDuration::get().into());
+            let end_block = frame_system::Pallet::<T>::block_number()
+                .saturating_add(T::MarketDuration::get().into());
 
             let bounded_metadata: BoundedVec<_, _> = metadata
                 .try_into()
@@ -143,15 +144,10 @@ pub mod pallet {
         #[pallet::call_index(1)]
         #[pallet::weight(10_000)]
         #[transactional]
-        pub fn vote(
-            origin: OriginFor<T>,
-            market_id: u32,
-            vote_yes: bool,
-        ) -> DispatchResult {
+        pub fn vote(origin: OriginFor<T>, market_id: u32, vote_yes: bool) -> DispatchResult {
             let voter = ensure_signed(origin)?;
-            
-            let mut market = Markets::<T>::get(market_id)
-                .ok_or(Error::<T>::MarketDoesNotExist)?;
+
+            let mut market = Markets::<T>::get(market_id).ok_or(Error::<T>::MarketDoesNotExist)?;
             ensure!(market.is_active, Error::<T>::MarketNotActive);
             ensure!(
                 frame_system::Pallet::<T>::block_number() <= market.end_block,
@@ -192,14 +188,10 @@ pub mod pallet {
 
         #[pallet::weight(10_000)]
         #[transactional]
-        pub fn release_rewards(
-            origin: OriginFor<T>,
-            market_id: u32,
-        ) -> DispatchResult {
+        pub fn release_rewards(origin: OriginFor<T>, market_id: u32) -> DispatchResult {
             let _ = ensure_signed(origin)?;
-            
-            let mut market = Markets::<T>::get(market_id)
-                .ok_or(Error::<T>::MarketDoesNotExist)?;
+
+            let mut market = Markets::<T>::get(market_id).ok_or(Error::<T>::MarketDoesNotExist)?;
             ensure!(market.is_active, Error::<T>::MarketNotActive);
             ensure!(
                 frame_system::Pallet::<T>::block_number() > market.end_block,
@@ -207,20 +199,24 @@ pub mod pallet {
             );
 
             market.is_active = false;
-            
+
             let total_reward_pool = market.total_staked;
             let creator_reward = total_reward_pool
                 .saturating_mul(T::CreatorRewardPercentage::get().into())
-                .checked_div(100u32.into())
+                .checked_div(&BalanceOf::<T>::from(100u32))
                 .unwrap_or_else(Zero::zero);
-            
+
             let remaining_reward_pool = total_reward_pool.saturating_sub(creator_reward);
             let yes_wins = market.yes_votes > market.no_votes;
-            let winner_count = if yes_wins { market.yes_votes } else { market.no_votes };
-            
+            let winner_count = if yes_wins {
+                market.yes_votes
+            } else {
+                market.no_votes
+            };
+
             if winner_count > 0 {
                 let reward_per_winner = remaining_reward_pool
-                    .checked_div(winner_count.into())
+                    .checked_div(&BalanceOf::<T>::from(winner_count))
                     .unwrap_or_else(Zero::zero);
 
                 // Distribute rewards to winners
