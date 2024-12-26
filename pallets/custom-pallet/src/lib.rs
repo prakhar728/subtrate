@@ -8,6 +8,8 @@ pub use pallet::*;
 pub mod pallet {
     use super::*;
     use frame_support::pallet_prelude::*;
+    use frame_support::sp_runtime::traits::CheckedDiv;
+    use frame_support::sp_runtime::traits::Zero;
     use frame_system::pallet_prelude::*;
     use frame_support::transactional;    
     use frame_support::traits::Currency;
@@ -60,7 +62,7 @@ pub mod pallet {
     #[derive(Clone, Encode, Decode, Eq, PartialEq, RuntimeDebug, MaxEncodedLen, TypeInfo)]
     pub struct Market<T: Config> {
         pub creator: T::AccountId,
-        pub end_block: u32,
+        pub end_block: <<<T as frame_system::Config>::Block as frame_support::sp_runtime::traits::Block>::Header as frame_support::sp_runtime::traits::Header>::Number,
         pub yes_votes: u32,
         pub no_votes: u32,
         pub total_staked: BalanceOf<T>,
@@ -75,7 +77,7 @@ pub mod pallet {
         MarketCreated {
             market_id: u32,
             creator: T::AccountId,
-            end_block: u32,
+            end_block: <<<T as frame_system::Config>::Block as frame_support::sp_runtime::traits::Block>::Header as frame_support::sp_runtime::traits::Header>::Number,
             metadata: BoundedVec<u8, ConstU32<256>>,
         },
         VoteCast {
@@ -109,7 +111,7 @@ pub mod pallet {
 
             let market_id = MarketCount::<T>::get();
             let end_block =
-                frame_system::Pallet::<T>::block_number().saturating_add(T::MarketDuration::get());
+                frame_system::Pallet::<T>::block_number().saturating_add(T::MarketDuration::get().into());
 
             let bounded_metadata: BoundedVec<_, _> = metadata
                 .try_into()
