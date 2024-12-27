@@ -23,6 +23,8 @@
 //
 // For more information, please refer to <http://unlicense.org>
 
+use super::OriginCaller;
+
 mod xcm_config;
 
 // Substrate and Polkadot dependencies
@@ -307,4 +309,31 @@ impl pallet_collator_selection::Config for Runtime {
 impl pallet_parachain_template::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type WeightInfo = pallet_parachain_template::weights::SubstrateWeight<Runtime>;
+}
+
+
+// Configure utility pallet
+impl pallet_utility::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type RuntimeCall = RuntimeCall;
+    type PalletsOrigin = OriginCaller;
+    type WeightInfo = pallet_utility::weights::SubstrateWeight<Runtime>;
+}
+
+// First add the parameter types
+parameter_types! {
+    pub const PredictionMarketPalletId: PalletId = PalletId(*b"pred/mkt");
+    pub const VoteCost: Balance = 0; // Or whatever amount you want to set
+    pub const CreatorRewardPercentage: u32 = 5; // 5%
+    pub const MarketDuration: u32 = 100; // Duration in blocks
+}
+
+// Then implement the config for your pallet
+impl custom_pallet::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type Currency = Balances;  // Use the Balances pallet for currency
+    type PalletId = PredictionMarketPalletId;
+    type VoteCost = VoteCost;
+    type CreatorRewardPercentage = CreatorRewardPercentage;
+    type MarketDuration = MarketDuration;
 }

@@ -15,6 +15,8 @@ pub mod pallet {
     use frame_support::transactional;
     use frame_support::PalletId;
     use frame_system::pallet_prelude::*;
+    use scale_info::prelude::vec::Vec;
+
 
     type BalanceOf<T> =
         <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
