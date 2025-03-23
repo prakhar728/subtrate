@@ -17,17 +17,14 @@ pub mod pallet {
     use frame_system::pallet_prelude::*;
     use scale_info::prelude::vec::Vec;
 
-
     type BalanceOf<T> =
         <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
 
     #[pallet::pallet]
     pub struct Pallet<T>(_);
 
-    // Configuration trait for the pallet
     #[pallet::config]
     pub trait Config: frame_system::Config + scale_info::TypeInfo {
-        // Defines the event type for the pallet
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
         type Currency: Currency<Self::AccountId>;
@@ -71,12 +68,19 @@ pub mod pallet {
         pub total_staked: BalanceOf<T>,
         pub is_active: bool,
         pub metadata: BoundedVec<u8, ConstU32<256>>,
+        pub memes: BoundedVec<Meme<T>, ConstU32<100>>
+    }
+
+    #[derive(Clone, Encode, Decode, Eq, PartialEq, RuntimeDebug, MaxEncodedLen, TypeInfo)]
+    pub struct Meme<T: Config> {
+        pub creator: T::AccountId,
+        pub cid: BoundedVec<u8, ConstU32<256>>, // IPFS CID
+        pub meme_template: u32,
     }
 
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
-        /// The counter value has been set to a new value by Root.
         MarketCreated {
             market_id: u32,
             creator: T::AccountId,
@@ -93,6 +97,12 @@ pub mod pallet {
             creator: T::AccountId,
             creator_reward: BalanceOf<T>,
         },
+        MemeCreated {
+            market_id: u32,
+            creator: T::AccountId,
+            cid: BoundedVec<u8, ConstU32<256>>,
+            template_id: u32,
+        },
     }
 
     #[pallet::error]
@@ -103,6 +113,8 @@ pub mod pallet {
         AlreadyVoted,
         InvalidVoteCost,
         MetadataTooLong,
+        MemeListFull,
+        InvalidCID,
     }
 
     #[pallet::call]
@@ -128,6 +140,7 @@ pub mod pallet {
                 total_staked: Zero::zero(),
                 is_active: true,
                 metadata: bounded_metadata.clone(),
+                memes: BoundedVec::default(),
             };
 
             Markets::<T>::insert(market_id, market);
@@ -168,7 +181,6 @@ pub mod pallet {
                 ExistenceRequirement::KeepAlive,
             )?;
 
-            // Record vote
             if vote_yes {
                 market.yes_votes = market.yes_votes.saturating_add(1);
             } else {
@@ -221,7 +233,6 @@ pub mod pallet {
                     .checked_div(&BalanceOf::<T>::from(winner_count))
                     .unwrap_or_else(Zero::zero);
 
-                // Distribute rewards to winners
                 for (voter, vote) in Votes::<T>::iter_prefix(market_id) {
                     if vote == yes_wins {
                         let _ = T::Currency::transfer(
@@ -234,7 +245,6 @@ pub mod pallet {
                 }
             }
 
-            // Transfer creator reward
             let _ = T::Currency::transfer(
                 &Self::account_id(),
                 &market.creator,
@@ -252,11 +262,51 @@ pub mod pallet {
 
             Ok(())
         }
+
+        #[pallet::call_index(3)]
+        #[pallet::weight(10_000)]
+        pub fn create_meme(origin: OriginFor<T>, market_id: u32, cid: Vec<u8>) -> DispatchResult {
+            let creator = ensure_signed(origin)?;
+
+            // Get market
+            let mut market = Markets::<T>::get(market_id).ok_or(Error::<T>::MarketDoesNotExist)?;
+
+            ensure!(market.is_active, Error::<T>::MarketNotActive);
+
+            let bounded_cid: BoundedVec<u8, ConstU32<256>> =
+                cid.try_into().map_err(|_| Error::<T>::InvalidCID)?;
+
+            let meme = Meme {
+                creator: creator.clone(),
+                cid: bounded_cid.clone(),
+                meme_template: market_id,
+            };
+
+            market
+                .memes
+                .try_push(meme)
+                .map_err(|_| Error::<T>::MemeListFull)?;
+
+            Markets::<T>::insert(market_id, market);
+
+            Self::deposit_event(Event::MemeCreated {
+                market_id,
+                creator,
+                cid: bounded_cid,
+                template_id: market_id,
+            });
+
+            Ok(())
+        }
     }
 
     impl<T: Config> Pallet<T> {
         pub fn account_id() -> T::AccountId {
             T::PalletId::get().into_account_truncating()
+        }
+
+        pub fn get_market_memes(market_id: u32) -> Option<Vec<Meme<T>>> {
+            Markets::<T>::get(market_id).map(|market| market.memes.to_vec())
         }
     }
 }
